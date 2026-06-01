@@ -251,6 +251,60 @@ def panda_visual(slide, cx, cy, r, ec=RGBColor(0, 0, 0), fc=WHITE, ring=None, as
         panda_face(slide, cx, cy, r, ec=ec, fc=fc)
 
 
+def asset_path(*parts):
+    return os.path.join(ASSET_DIR, *parts)
+
+
+def crop_image(src, aspect=1.0, size=(900, 900), suffix="crop"):
+    if not _PIL_OK or not src or not os.path.exists(src):
+        return src if src and os.path.exists(src) else None
+    key = (os.path.abspath(src), aspect, size, suffix)
+    out = os.path.join(_TMP_DIR, f"{os.path.splitext(os.path.basename(src))[0]}_{suffix}_{size[0]}x{size[1]}.png")
+    if os.path.exists(out):
+        return out
+    try:
+        os.makedirs(_TMP_DIR, exist_ok=True)
+        im = Image.open(src).convert("RGBA")
+        w, h = im.size
+        current = w / h
+        if current > aspect:
+            nw = int(h * aspect)
+            left = (w - nw) // 2
+            im = im.crop((left, 0, left + nw, h))
+        else:
+            nh = int(w / aspect)
+            top = (h - nh) // 2
+            im = im.crop((0, top, w, top + nh))
+        im = im.resize(size, Image.LANCZOS)
+        im.save(out)
+        return out
+    except Exception as e:
+        print("  [warn] 图片裁切失败:", src, e)
+        return src
+
+
+def add_photo(slide, src, x, y, w, h, fit="cover"):
+    if not src or not os.path.exists(src):
+        rect(slide, x, y, w, h, LIGHT, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+        return None
+    if fit == "cover":
+        src = crop_image(src, aspect=float(w) / float(h), size=(1000, max(1, int(1000 * float(h) / float(w)))), suffix="cover")
+    return slide.shapes.add_picture(src, x, y, w, h)
+
+
+COMPETITOR_ASSETS = {
+    "Loona": asset_path("competitors", "loona.jpg"),
+    "Vector": asset_path("competitors", "vector.jpg"),
+    "Eilik": asset_path("competitors", "eilik.jpg"),
+    "Ropet": asset_path("competitors", "ropet_1.png"),
+    "Moflin": asset_path("competitors", "moflin.jpg"),
+    "BubblePal": asset_path("competitors", "bubblepal.jpg"),
+}
+
+CONCEPT_DESKTOP = asset_path("concepts", "huahua_desktop_eye_module.png")
+CONCEPT_LINEUP = asset_path("concepts", "huahua_size_lineup.png")
+
+
 def chip(slide, x, y, w, text, color=BAMBOO, tcolor=WHITE, h=Inches(0.42), size=12):
     sp = rect(slide, x, y, w, h, color, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     try:
@@ -351,59 +405,44 @@ txt(s, Inches(0.78), Inches(7.0), Inches(11), Inches(0.3),
     "数据来源：第三方行业报告(accio / keyirobot 等)，已按合规改写，正式 BP 需交叉核验权威机构口径。", 9, GRAY)
 
 # =================================================================
-# Slide 4 — 竞品对比表
+# Slide 4 — 竞品实物图对比
 # =================================================================
 s = add_slide()
 bg(s, PAPER)
-page_header(s, "COMPETITION · 竞品对比", "主流桌面互动陪伴机器人横向对比", 4)
-rows = [
-    ["产品", "形态", "价格", "大模型", "可动肢体", "拟真外形", "仿生眼", "成长系统", "强IP"],
-    ["Loona", "机器狗", "$449+", "✓", "部分", "✗", "屏幕", "弱", "✗"],
-    ["Vector", "履带机器人", "$399", "✓", "弱", "✗", "屏幕", "弱", "✗"],
-    ["Eilik", "桌面机器人", "$129", "弱", "手臂", "✗", "屏幕", "弱", "✗"],
-    ["Ropet", "毛绒AI宠物", "$299", "✓", "✗", "部分", "屏幕", "✓", "✗"],
-    ["Moflin", "毛绒小宠", "~$400", "✗", "✗", "✓", "✗", "✓✓", "✗"],
-    ["BubblePal", "语音挂件", "~$99", "✓", "✗", "✗", "✗", "✗", "✗"],
-    ["熊猫花花", "1:1拟真熊猫", "¥1499+", "✓", "✓✓", "✓✓", "✓✓", "✓✓", "✓✓"],
+page_header(s, "COMPETITION · 实物对比", "竞品各自只解决了局部体验, 形态短板非常直观", 4)
+cards = [
+    ("Loona", "机器狗 / 硬壳", "强动作\n弱毛绒陪伴", BAMBOO),
+    ("Vector", "履带机器人", "强桌面感\n弱情感载体", RGBColor(0x5B,0x8D,0xEF)),
+    ("Eilik", "表情桌面机器人", "强表演\n弱真实生命感", GOLD),
+    ("Ropet", "毛绒 AI 宠物", "强柔软\n弱肢体动作", PINK),
+    ("Moflin", "毛绒情感宠物", "强养成\n弱对话/动作", RGBColor(0x9B,0x59,0xB6)),
+    ("BubblePal", "语音挂件", "强低价\n无机体生命感", GRAY),
 ]
-nrow = len(rows); ncol = len(rows[0])
-tx, ty = Inches(0.6), Inches(1.7)
-tw = Inches(12.13)
-col_w = [1.7, 1.55, 1.15, 1.1, 1.15, 1.15, 1.05, 1.25, 1.03]
-scale = 12.13 / sum(col_w)
-col_w = [c*scale for c in col_w]
-rh = Inches(0.58)
-cy = ty
-for ri, row in enumerate(rows):
-    cx = tx
-    is_head = (ri == 0)
-    is_us = (ri == nrow-1)
-    for ci, cell in enumerate(row):
-        w = Inches(col_w[ci])
-        if is_head:
-            fill = INK
-        elif is_us:
-            fill = BAMBOO
-        else:
-            fill = WHITE if ri % 2 == 1 else LIGHT
-        cellsp = rect(s, cx, cy, w, rh, fill)
-        tc = WHITE if (is_head or is_us) else INK
-        if cell == "✓✓":
-            tc = GOLD if is_us else BAMBOO_D
-        elif cell == "✗" and not is_head and not is_us:
-            tc = RGBColor(0xC0,0x40,0x40)
-        tf = cellsp.text_frame; tf.word_wrap = True
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-        p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
-        r = p.add_run(); r.text = cell
-        r.font.size = Pt(12 if ci == 0 else 11.5)
-        r.font.bold = is_head or is_us or ci == 0
-        r.font.color.rgb = tc; r.font.name = FONT
-        _ea(r)
-        cx += w
-    cy += rh
-txt(s, Inches(0.6), Inches(6.95), Inches(12), Inches(0.3),
-    "结论：没有任一竞品同时具备「1:1拟真熊猫(零机械裸露) + 仿生眼 + 可动四肢 + 大模型 + 成长 + 现象级IP」。", 12, INK, bold=True)
+for i, (name, form, gap, color) in enumerate(cards):
+    x = Inches(0.62) + (i % 3) * Inches(4.13)
+    y = Inches(1.6) + (i // 3) * Inches(2.28)
+    rect(s, x, y, Inches(3.85), Inches(2.05), WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+    add_photo(s, COMPETITOR_ASSETS.get(name), x+Inches(0.12), y+Inches(0.12), Inches(1.45), Inches(1.25))
+    txt(s, x+Inches(1.75), y+Inches(0.16), Inches(1.9), Inches(0.35), name, 16, color, bold=True)
+    txt(s, x+Inches(1.75), y+Inches(0.55), Inches(1.9), Inches(0.35), form, 11, GRAY, bold=True)
+    txt(s, x+Inches(1.75), y+Inches(0.98), Inches(1.9), Inches(0.8), gap, 13, INK, bold=True, line_spacing=1.05)
+    rect(s, x, y+Inches(1.92), Inches(3.85), Inches(0.13), color, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+
+rows = [
+    ("眼睛方案", "屏幕/表情屏为主", "真实眼球 + 眼皮微机构"),
+    ("肢体动作", "轮式/履带/局部动作, 或几乎不动", "桌面坐姿 + 前肢/头部/眼神动作库"),
+    ("情感载体", "硬壳机器人或无 IP 毛绒", "真实熊猫花花形象 + 毛绒可抱"),
+    ("主攻尺寸", "掌上/桌面玩具, 结构空间受限", "桌面级 28-35cm, 留足眼部机构空间"),
+]
+ty = Inches(5.95)
+for i, (dim, market, huahua) in enumerate(rows):
+    x = Inches(0.78) + i * Inches(3.0)
+    rect(s, x, ty, Inches(2.78), Inches(0.68), LIGHT if i % 2 else WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+    txt(s, x+Inches(0.12), ty+Inches(0.08), Inches(2.5), Inches(0.18), dim, 9.5, GRAY, bold=True)
+    txt(s, x+Inches(0.12), ty+Inches(0.28), Inches(1.14), Inches(0.32), market, 8.5, RGBColor(0xB0,0x3A,0x3A), line_spacing=0.9)
+    txt(s, x+Inches(1.32), ty+Inches(0.26), Inches(1.32), Inches(0.34), huahua, 8.5, BAMBOO_D, bold=True, line_spacing=0.9)
+txt(s, Inches(0.78), Inches(6.77), Inches(11.7), Inches(0.3),
+    "结论：花花不是再做一个桌面机器人, 而是把「真实熊猫外观 + 机械眼神 + 毛绒陪伴 + AI成长」合成到一个可量产规格里。", 11, INK, bold=True)
 
 # =================================================================
 # Slide 5 — 竞品优缺点深度
@@ -412,29 +451,30 @@ s = add_slide()
 bg(s, PAPER)
 page_header(s, "COMPETITION · 优缺点剖析", "四类代表竞品的优势与短板", 5)
 comp = [
-    ("Loona  最强动作派", BAMBOO,
+    ("Loona  最强动作派", "Loona", BAMBOO,
      "优: 5 TOPS BPU+4舵机, 动作流畅, ToF避障, GPT-4o, 700+表情",
      "缺: 塑料机器狗形态, 无柔软可抱感, 眼睛是屏幕, 无IP, 价高"),
-    ("Ropet  最强毛绒养成派", GOLD,
+    ("Ropet  最强毛绒养成派", "Ropet", GOLD,
      "优: 软萌可抱, 视觉情感识别, 养成系统, 已售约2万台并完成A轮",
      "缺: 几乎不能动(无四肢/行走), 眼睛仍是屏幕, 续航一般, 无IP"),
-    ("Moflin/Casio  最强情感派", PINK,
+    ("Moflin/Casio  最强情感派", "Moflin", PINK,
      "优: 情感AI与性格成长顶级, 宣称400万种情感画像, 品牌背书强",
      "缺: 无四肢/不能动/不说话, 交互偏单向, 价格高"),
-    ("BubblePal  最轻插件派", RGBColor(0x5B,0x8D,0xEF),
+    ("BubblePal  最轻插件派", "BubblePal", RGBColor(0x5B,0x8D,0xEF),
      "优: 成本极低, 即插即用, 可绑任意玩偶让其开口说话",
      "缺: 没有任何机械动作与生命感, 本质是语音模块"),
 ]
 gx, gy = Inches(0.78), Inches(1.7)
 cw, ch = Inches(5.78), Inches(2.5)
-for i, (title, c, pro, con) in enumerate(comp):
+for i, (title, asset_key, c, pro, con) in enumerate(comp):
     x = gx + (i % 2) * Inches(6.0)
     y = gy + (i // 2) * Inches(2.65)
     rect(s, x, y, cw, ch, WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     rect(s, x, y, cw, Inches(0.62), c, shape=MSO_SHAPE.ROUND_2_SAME_RECTANGLE)
     txt(s, x+Inches(0.25), y+Inches(0.06), cw-Inches(0.4), Inches(0.5), title, 16, WHITE, bold=True, anchor=MSO_ANCHOR.MIDDLE)
-    txt(s, x+Inches(0.3), y+Inches(0.8), cw-Inches(0.55), Inches(0.8), pro, 12.5, BAMBOO_D, bold=True, line_spacing=1.05)
-    txt(s, x+Inches(0.3), y+Inches(1.62), cw-Inches(0.55), Inches(0.8), con, 12.5, RGBColor(0xB0,0x3A,0x3A), bold=True, line_spacing=1.05)
+    add_photo(s, COMPETITOR_ASSETS.get(asset_key), x+Inches(0.28), y+Inches(0.82), Inches(1.35), Inches(1.24))
+    txt(s, x+Inches(1.82), y+Inches(0.82), cw-Inches(2.05), Inches(0.72), pro, 12, BAMBOO_D, bold=True, line_spacing=1.02)
+    txt(s, x+Inches(1.82), y+Inches(1.58), cw-Inches(2.05), Inches(0.72), con, 12, RGBColor(0xB0,0x3A,0x3A), bold=True, line_spacing=1.02)
 
 # =================================================================
 # Slide 6 — 产品定位 / 花花是谁
@@ -443,27 +483,28 @@ s = add_slide()
 bg(s, INK)
 rect(s, 0, 0, Inches(0.16), SH, BAMBOO)
 txt(s, Inches(0.7), Inches(0.55), Inches(8), Inches(0.4), "PRODUCT · 产品定位", 13, RGBColor(0x9C,0xD6,0x6B), bold=True)
-txt(s, Inches(0.68), Inches(0.95), Inches(11.5), Inches(0.8), "熊猫花花 = 1:1 拟真熊猫 × 真实生命感 × 智能大脑", 26, WHITE, bold=True)
-panda_visual(s, int(Inches(10.6)), int(Inches(4.4)), int(Inches(1.7)), ec=RGBColor(0,0,0), fc=WHITE, ring=RGBColor(0x33,0x3D,0x30), asset_index=1)
-bullet(s, Inches(0.8), Inches(2.1), Inches(8.6), Inches(2.0), [
-    "目标人群||：Z世代/女性情感消费者、亲子家庭、熊猫/国潮IP粉丝、(二期)适老陪伴",
-    "核心场景||：桌面陪伴、情绪互动、语音问答、招手/作揖/撒娇等肢体表演、养成打卡、IP联动",
-], size=15, color=RGBColor(0xEC,0xEF,0xE8), gap=1.3, mark_color=RGBColor(0x9C,0xD6,0x6B))
-txt(s, Inches(0.8), Inches(3.95), Inches(11), Inches(0.4), "五大护城河", 18, WHITE, bold=True)
-moats = [
-    ("拟真外形", "1:1真熊猫\n全身毛绒·零机械裸露", PINK),
-    ("IP 壁垒", "独家花花IP\n形象/性格/声音", BAMBOO),
-    ("仿生眼神", "眼球+眼皮\n机械仿生眼", GOLD),
-    ("成长飞轮", "越互动越专属\n迁移成本越高", RGBColor(0x5B,0x8D,0xEF)),
+txt(s, Inches(0.68), Inches(0.95), Inches(11.5), Inches(0.8), "主攻桌面级：小到能陪伴, 大到能塞进机械仿生眼", 26, WHITE, bold=True)
+add_photo(s, CONCEPT_DESKTOP, Inches(6.8), Inches(1.65), Inches(5.85), Inches(3.3))
+bullet(s, Inches(0.8), Inches(1.95), Inches(5.65), Inches(1.85), [
+    "目标规格||：桌面旗舰约 28-35cm, 坐姿稳定, 头部空间足够容纳双眼微型舵机模块",
+    "核心体验||：真实毛绒触感 + 机械眼球/眼皮 + 头部/前肢动作, 先做“坐着也有生命感”的花花",
+    "研发取舍||：行走是二期加分项, 不能牺牲拟真外形与眼神机构",
+], size=13.5, color=RGBColor(0xEC,0xEF,0xE8), gap=1.12, mark_color=RGBColor(0x9C,0xD6,0x6B))
+txt(s, Inches(0.8), Inches(4.05), Inches(5.8), Inches(0.35), "尺寸策略", 16, RGBColor(0x9C,0xD6,0x6B), bold=True)
+add_photo(s, CONCEPT_LINEUP, Inches(0.8), Inches(4.45), Inches(5.85), Inches(1.82))
+size_notes = [
+    ("Mini 18cm", "低价可爱款\n眼部机构空间紧张", RGBColor(0xC9,0xCE,0xC2)),
+    ("Desktop 28-35cm", "主攻旗舰\n能放下机械眼睛", GOLD),
+    ("Collector 70cm", "展示/联名款\n成本与物流更重", PINK),
 ]
-mx = Inches(0.8)
-for (t, d, c) in moats:
-    w = Inches(2.75)
-    rect(s, mx, Inches(4.6), w, Inches(1.7), RGBColor(0x24,0x2C,0x22), shape=MSO_SHAPE.ROUNDED_RECTANGLE)
-    rect(s, mx, Inches(4.6), w, Inches(0.12), c, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
-    txt(s, mx+Inches(0.2), Inches(4.78), w-Inches(0.4), Inches(0.5), t, 16, c, bold=True)
-    txt(s, mx+Inches(0.2), Inches(5.4), w-Inches(0.4), Inches(0.8), d, 12, RGBColor(0xD7,0xDB,0xD2), line_spacing=1.05)
-    mx += Inches(2.92)
+for i, (label, note, c) in enumerate(size_notes):
+    x = Inches(6.95) + i * Inches(1.78)
+    rect(s, x, Inches(5.25), Inches(1.55), Inches(1.0), RGBColor(0x24,0x2C,0x22), shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+    rect(s, x, Inches(5.25), Inches(1.55), Inches(0.1), c, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+    txt(s, x+Inches(0.12), Inches(5.38), Inches(1.3), Inches(0.25), label, 10.5, c, bold=True)
+    txt(s, x+Inches(0.12), Inches(5.72), Inches(1.3), Inches(0.45), note, 9.2, RGBColor(0xD7,0xDB,0xD2), line_spacing=0.9)
+txt(s, Inches(6.95), Inches(4.48), Inches(5.3), Inches(0.52),
+    "桌面级不是妥协，而是机械眼、毛绒外观、可抱体积和量产成本之间的最佳交点。", 15, WHITE, bold=True, line_spacing=1.05)
 
 # =================================================================
 # Slide 7 — 技术系统1: 仿生眼
